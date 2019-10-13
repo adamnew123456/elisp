@@ -1,3 +1,4 @@
+;;; -*- lexical-binding: t -*-
 ;; Copyright 2019, Chris Marchetti
 
 ;;  This program is free software: you can redistribute it and/or modify
@@ -90,10 +91,10 @@
 (defun org-zettel//addr-next (addr)
   "Determines the address of the next new zettel after this one.
 
-This function will traverse the first children of the address
-until either there is no right sibling (in which case that right
-sibling address is returned) or there is no first child (in which
-case the first child address is returned)"
+This function prefers to put the next note in the left sibling slot, but if that
+slot is occupied then it will move to the first child slot. If that is also
+occupied, then it will recusively consider the first child slot (its left sibling,
+its first child, etc.)"
   (let ((result nil))
     (while (null result)
       (let ((right (org-zettel//right-addr addr))
@@ -203,6 +204,7 @@ case the first child address is returned)"
 (org-link-set-parameters "zettel"
                          :follow #'org-zettel//open-short)
 
+;; Org-mode browsing integration
 (defun org-zettel//indent (depth)
   "Prints the indent for the given depth"
   (while (> depth 0)
@@ -233,5 +235,11 @@ case the first child address is returned)"
     (with-output-to-temp-buffer buffer-name
       (org-zettel//render-addr-family '(1) 0))
 
-    (pop-to-buffer buffer-name t t)
+    (pop-to-buffer buffer-name nil t)
     (org-mode)))
+
+;; Misc
+(defun org-zettel-prompt ()
+  "Prompts for a zettel address and opens it"
+  (interactive)
+  (org-zettel//open-short (read-string "zettel address: ")))
