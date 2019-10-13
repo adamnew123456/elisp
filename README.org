@@ -1,0 +1,94 @@
+* Intro
+Various miscellaneous Emacs Lisp scripts which I use for integrating with
+different systems. Note that none of these are actually modes; you'll need to
+bind keys for them if you want to use them.
+
+All of these are licensed under the GPLv2.
+** clk.el
+This is an integration for my [[https://github.com/adamnew123456/clk2][clk2]] time tracker. It currently supports clocking
+in/out, finishing tasks, listing tasks and viewing the history of individual
+tasks. 
+
+Rewriting history is not currently supported. I typically shell out to
+clk2.Client using the rewrite command.
+*** Public API
+- ~clk2/get-tasks~
+- ~clk2/in~
+- ~clk2/out~
+- ~clk2/finish~
+- ~clk2/list~
+- ~clk2/history~
+** elzilla.el
+This is a basic Bugzilla integration which supports viewing bugs as org-mode
+buffers, searching bugs, downloading attachments and posting comments. 
+
+It also adds support for the elzilla: and elzilladl: protocols; elzilla:12345
+will open bug 12345 within elzilla, while elzilladl:12345 will download the
+attachment with id 123456 into your elzilla-attachments-dir.
+
+Comment posting is somewhat awkward and I'm planning on redoing it as a minor
+mode at some point. At the moment I post comments from an existing org-mode or
+scratch buffer by marking the comment in a region and using
+elzilla/post-comment-prompt.
+*** Public API
+- ~elzilla/get-bug~
+- ~elzilla/prompt-bug~
+- ~elzilla/get-my-created-bugs~
+- ~elzilla/get-my-assigned-bugs~
+- ~elzilla/quicksearch~
+- ~elzilla/quicksearch-prompt~
+- ~elzilla/post-comment-string~
+- ~elzilla/post-comment-region~
+- ~elzilla/post-comment-prompt~
+- ~elzilla/download-attachment~
+** org-zettel.el
+This is a barebones implementation of the Zettelkasten note-taking system; see
+[[https://www.lesswrong.com/posts/NfdHG6oHBJ8Qxc26s/the-zettelkasten-method-1][the LessWrong post]] for an overview. It includes spatial movement, so that if
+you have 1.2 open you can move up (1), left (1.1), right (1.3) or down (1.2.1)
+with one command.
+
+#+BEGIN_SRC text
+  1                    2
+   1.1  1.2        1.3
+            1.2.1
+#+END_SRC
+
+You can also add notes and have them inserted into the proper positional
+automatically. See the documentation of org-zettel//addr-next for the
+exact positioning algorithm.
+
+You can also get a rendered preview of the notes within your
+org-zettel-directory by running org-zettel-render. Each of the note identifiers
+is linked using the zettel: link format and can be opened directly from the
+rendered buffer:
+
+#+BEGIN_SRC text
+- 1 org-zettel
+ - 1.1 org-zettel movement
+ - 1.2 org-zettel add
+  - 1.2.1 org-zettel add algorithm
+ - 1.3 org-zettel render
+- 2 cooking recipes
+#+END_SRC
+
+It will look inside of each of your zettel files and extract the first line as a
+summary, similar to the standard Git commit format:
+
+#+BEGIN_SRC text
+  org-zettel movement
+
+  org-zettel-move-left: Opens the left sibling of the current note
+  org-zettel-move-right: Opens the right sibling of the current note
+  org-zettel-move-up: Opens the parent of the current note
+  org-zettel-move-down: Opens the first child of the current note
+#+END_SRC
+
+*** Public API
+- ~org-zettel-init~
+- ~org-zettel-move-right~
+- ~org-zettel-move-left~
+- ~org-zettel-move-up~
+- ~org-zettel-move-down~
+- ~org-zettel-add~
+- ~org-zettel-render~
+- ~org-zettel-prompt~

@@ -15,6 +15,9 @@
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;; org-zettel: A Zettelkasten extension based upon org-mode
+;;
+;; To start, run org-zettel-init to configure your org-zettel-directory and
+;; create the first note.
 
 (require 'org)
 
@@ -121,7 +124,7 @@ its first child, etc.)"
 
   (org-zettel//open-buffer '(1)))
 
-(defun org-zettel-init-buffer ()
+(defun org-zettel//init-buffer ()
   "Initializes the buffer's zettel address"
   (setq-local org-zettel-buffer-addr
               (org-zettel//filename-to-addr (file-name-nondirectory (buffer-file-name)))))
@@ -131,12 +134,12 @@ its first child, etc.)"
   (let ((target-file (org-zettel//addr-to-resolved addr)))
     (find-file target-file)
     (with-current-buffer (get-file-buffer target-file)
-      (org-zettel-init-buffer))))
+      (org-zettel//init-buffer))))
 
 (defun org-zettel//check-init ()
   "Ensures that the current buffer has been initialized by org-zettel"
   (if (not (boundp 'org-zettel-buffer-addr))
-      (error "Cannot use org-zettel functions until org-zettel-init-buffer has been called")))
+      (error "Cannot use org-zettel functions until org-zettel//init-buffer has been called")))
 
 (defun org-zettel//description (addr)
   "Gets the description line of the zettel at the given address"
