@@ -53,9 +53,13 @@ with one command.
             1.2.1
 #+END_SRC
 
-You can also add notes and have them inserted into the proper positional
-automatically. See the documentation of org-zettel//addr-next for the
-exact positioning algorithm.
+You can add notes and have them inserted into the proper positional
+automatically. You can either add by going right to the end of the current level
+(org-zettel-add-right) or going down to the end of the current ancestry chain
+(org-zettel-add-down). There is also org-zettel-add which tries to stay close to
+the current zettel; if it can't add immediately right, and if it can't add
+immediately down, it will go down and try the same process until it finds a free
+slot.
 
 You can also get a rendered preview of the notes within your
 org-zettel-directory by running org-zettel-render. Each of the note identifiers
@@ -82,7 +86,6 @@ summary, similar to the standard Git commit format:
   org-zettel-move-up: Opens the parent of the current note
   org-zettel-move-down: Opens the first child of the current note
 #+END_SRC
-
 *** Public API
 - ~org-zettel-init~
 - ~org-zettel-move-right~
@@ -90,5 +93,7 @@ summary, similar to the standard Git commit format:
 - ~org-zettel-move-up~
 - ~org-zettel-move-down~
 - ~org-zettel-add~
+- ~org-zettel-add-right~
+- ~org-zettel-add-down~
 - ~org-zettel-render~
 - ~org-zettel-prompt~

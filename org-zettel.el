@@ -199,6 +199,24 @@ its first child, etc.)"
   (let ((new-addr (org-zettel//addr-next org-zettel-buffer-addr)))
     (org-zettel//open-buffer new-addr)))
 
+(defun org-zettel-add-down ()
+  "Adds a new zettel as a child, without considering any right siblings"
+  (interactive)
+  (org-zettel//check-init)
+  (let ((addr org-zettel-buffer-addr))
+    (while (org-zettel//addr-exists-p addr)
+      (setq addr (org-zettel//down-addr addr)))
+    (org-zettel//open-buffer addr)))
+
+(defun org-zettel-add-right ()
+  "Adds a new zettel as a sibling, without considering any children"
+  (interactive)
+  (org-zettel//check-init)
+  (let ((addr org-zettel-buffer-addr))
+    (while (org-zettel//addr-exists-p addr)
+      (setq addr (org-zettel//right-addr addr)))
+    (org-zettel//open-buffer addr)))
+
 ;; Org-mode link integration
 (defun org-zettel//open-short (str)
   "Opens a zettel by its string address"
