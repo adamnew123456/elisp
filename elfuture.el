@@ -39,15 +39,6 @@
       (run-at-time 0 nil callback value)
     (funcall callback value)))
 
-(defun elfuture-resolve (future value)
-  "Resolves FUTURE with VALUE if FUTURE is not already resolved."
-  (if (elfuture-completed future) (return))
-  (setf (elfuture-completed future) t)
-  (setf (elfuture-value future) value)
-  (mapc (lambda (cb)
-          (elfuture--invoke cb value))
-        (reverse (elfuture-callbacks future))))
-
 (defun elfuture--raw-attach (future callback)
   "Attaches a single CALLBACK directly to FUTURE, without generating a result future"
   (if (elfuture-completed future)
@@ -55,18 +46,38 @@
     (setf (elfuture-callbacks future)
           (cons callback (elfuture-callbacks future)))))
 
+(defun elfuture--raw-resolve (future value)
+  "Resolves FUTURE with VALUE if FUTURE."
+  (setf (elfuture-completed future) t)
+  (setf (elfuture-value future) value)
+  (mapc (lambda (cb)
+          (elfuture--invoke cb value))
+        (reverse (elfuture-callbacks future))))
+
+(defun elfuture-resolve (future value)
+  "Resolves FUTURE with VALUE if FUTURE is not already resolved."
+  (cond
+   ((elfuture-completed future) nil)
+
+   ((elfuture-p value)
+    (elfuture--raw-attach
+     value
+     (lambda (inner) (elfuture-resolve future inner))))
+
+   (t
+    (setf (elfuture-completed future) t)
+    (setf (elfuture-value future) value)
+    (mapc (lambda (cb)
+            (elfuture--invoke cb value))
+          (reverse (elfuture-callbacks future))))))
+
 (defun elfuture--attach1 (future callback)
   "Attaches a single CALLBACK to FUTURE, and uses the result
   to resolve a new future which is returned."
   (let* ((chain-future (elfuture-new))
          (chain-callback
           (lambda (value)
-            (let ((result (funcall callback value)))
-              (if (elfuture-p result)
-                  (elfuture--raw-attach
-                   result
-                   (lambda (inner) (elfuture-resolve chain-future inner)))
-                (elfuture-resolve chain-future result))))))
+            (elfuture-resolve chain-future (funcall callback value)))))
 
     (elfuture--raw-attach future chain-callback)
     chain-future))
