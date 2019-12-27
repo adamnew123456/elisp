@@ -111,6 +111,23 @@ so on. The last entry resolves a new future which is returned."
               callbacks
               future))
 
+(defun elfuture-join (&rest futures)
+  "Creates a single future which is resolved with the combined values from FUTURES.
+
+When all of the FUTURES resolve, their values are combined into a single list which
+is used to resolve the returned future."
+  (let ((join-future (elfuture-new)))
+    (mapc
+     (lambda (future)
+       (elfuture--raw-attach
+        future
+        (lambda (value)
+          (if (seq-every-p #'elfuture-completed futures)
+              (elfuture-resolve join-future
+                                (mapcar #'elfuture-value futures))))))
+     futures)
+    join-future))
+
 (defun elfuture-retrieve-url (url)
   "Retrieves URL using url-retrieve and returns a future which completes with
 the buffer containing the response."
@@ -206,5 +223,22 @@ the buffer containing the response."
     (should (= 84 (elfuture-value future2)))
     (should (elfuture-completed future3))
     (should (= 84 (elfuture-value future3)))))
+
+(ert-deftest elfuture--test-join ()
+  "Tests that a joined future resolves with all values after all input futures
+have resolved."
+  (let* ((elfuture-run-async nil)
+         (future (elfuture-new))
+         (future2 (elfuture-new))
+         (future3 (elfuture-new))
+         (joined-future (elfuture-join future future2 future3)))
+    (should-not (elfuture-completed joined-future))
+    (elfuture-resolve future 1)
+    (should-not (elfuture-completed joined-future))
+    (elfuture-resolve future2 2)
+    (should-not (elfuture-completed joined-future))
+    (elfuture-resolve future3 3)
+    (should (elfuture-completed joined-future))
+    (should (equal '(1 2 3) (elfuture-value joined-future)))))
 
 (provide 'elfuture)

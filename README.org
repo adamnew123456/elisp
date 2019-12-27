@@ -26,19 +26,21 @@ It also adds support for the elzilla: and elzilladl: protocols; elzilla:12345
 will open bug 12345 within elzilla, while elzilladl:12345 will download the
 attachment with id 123456 into your elzilla-attachments-dir.
 
-Comment posting is somewhat awkward and I'm planning on redoing it as a minor
-mode at some point. At the moment I post comments from an existing org-mode or
-scratch buffer by marking the comment in a region and using
-elzilla/post-comment-prompt.
+Comment posting is its own minor mode which can be invoked using
+~elzilla/post-comment-prompt~ or by using the elzillapost:12345 URL handler
+which is included at the top of the Comments section of the bug page. Invoking
+either of these will create a new Markdown buffer where you can type the comment
+and either:
+
+- Post it using ~C-c C-c~ and delete the buffer
+- Cancel the posting and delete the buffer with ~C-c C-k~
 *** Public API
 - ~elzilla/get-bug~
 - ~elzilla/prompt-bug~
-- ~elzilla/get-my-created-bugs~
-- ~elzilla/get-my-assigned-bugs~
 - ~elzilla/quicksearch~
 - ~elzilla/quicksearch-prompt~
 - ~elzilla/post-comment-string~
-- ~elzilla/post-comment-region~
+- ~elzilla/post-comment~
 - ~elzilla/post-comment-prompt~
 - ~elzilla/download-attachment~
 ** org-zettel.el
@@ -101,9 +103,9 @@ summary, similar to the standard Git commit format:
 elfuture is a basic library which implements futures for deferred computation.
 It is mostly used as a wrapper by the other scripts when they need to perform
 asynchronous operations (usually dealing with network IO).
-
 *** Public API
 - ~elfuture-new~
 - ~elfuture-resolve~
 - ~elfuture-attach~
+- ~elfuture-join~
 - ~elfuture-retrieve-url~

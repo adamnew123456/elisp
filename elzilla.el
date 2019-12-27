@@ -1,3 +1,4 @@
+;;; -*- lexical-binding: t -*-
 ;; Copyright 2019, Chris Marchetti
 
 ;;  This program is free software: you can redistribute it and/or modify
@@ -13,7 +14,8 @@
 ;;  You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-(require 'cl)
+(require 'elfuture)
+(require 'cl-lib)
 (require 'json)
 (require 'org)
 (require 'seq)
@@ -42,14 +44,6 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 
   ELZILLA-ATTACHMENTS-DIR/12345/file.pdf")
 
-(defun elzilla//fetch-json-from-url (url)
-  "Downloads the URL and parses the contents as JSON"
-  (let ((json-object-type 'hash-table))
-    (with-current-buffer (url-retrieve-synchronously url)
-      (goto-char (point-min))
-      (re-search-forward "^$")
-      (json-read))))
-
 (defun elzilla//xj (path value)
   "Traverses multiple levels of a JSON structure at once"
   (seq-reduce (lambda (obj key)
@@ -58,6 +52,19 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
                   (gethash key obj)))
               path
               value))
+
+(defun elzilla//fetch-json-from-url (url path)
+  "(async) Downloads the URL and parses the contents as JSON, and retrieves the PATH."
+  (elfuture-attach
+   (elfuture-retrieve-url url)
+   (lambda (buffer)
+     (with-current-buffer buffer
+       (goto-char (point-min))
+       (re-search-forward "^$")
+       (let ((json-object-type 'hash-table))
+         (json-read))))
+   (lambda (value)
+     (elzilla//xj path value))))
 
 (defun elzilla//rest-url (path formatters params)
   "Builds a URL from the Bugzilla REST API base"
@@ -144,35 +151,34 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 
 (defun elzilla/get-bug (bug)
   "Creates a new org-mode buffer displaying the status and comments to the given bug"
-  (let* ((status-url (elzilla//rest-url "bug/%s" (list bug) nil))
+  (let* ((buffer-name (generate-new-buffer (format "*elzilla: bug %s*" bug)))
+         (status-url (elzilla//rest-url "bug/%s" (list bug) nil))
          ;; Take special care to avoid requesting the attachment body too early,
          ;; since can be much slower to retrieve than just metadata
          (attachments-url (elzilla//rest-url "bug/%s/attachment"
                                              (list bug)
                                              (list (cons "include_fields" "id,creator,creation_time,id,size,summary,content_type"))))
-         (comments-url (elzilla//rest-url "bug/%s/comment" (list bug) nil))
+         (comments-url (elzilla//rest-url "bug/%s/comment" (list bug) nil)))
 
-         (status-map
-          (elzilla//xj '("bugs" 0)
-                       (elzilla//fetch-json-from-url status-url)))
-         (comment-vector
-          (elzilla//xj (list "bugs" bug "comments")
-                       (elzilla//fetch-json-from-url comments-url)))
-
-         (attachments-vector
-          (elzilla//xj (list "bugs" bug)
-                       (elzilla//fetch-json-from-url attachments-url)))
-
-         (buffer-name (generate-new-buffer (format "*elzilla: bug %s*" bug))))
-
-    (with-output-to-temp-buffer buffer-name
-      (elzilla//print-bug-long status-map)
-      (elzilla//princf "* Attachments\n")
-      (mapc #'elzilla//print-attachment attachments-vector)
-      (elzilla//princf "* Comments\n")
-      (mapc #'elzilla//print-comment comment-vector))
-    (pop-to-buffer buffer-name t t)
-    (org-mode)))
+    (elfuture-attach
+     (elfuture-join
+      (elzilla//fetch-json-from-url status-url
+                                    '("bugs" 0))
+      (elzilla//fetch-json-from-url comments-url
+                                    (list "bugs" bug "comments"))
+      (elzilla//fetch-json-from-url attachments-url
+                                    (list "bugs" bug)))
+     (lambda (responses)
+       (cl-destructuring-bind (status-map comment-vector attachments-vector) responses
+           (with-output-to-temp-buffer buffer-name
+             (elzilla//print-bug-long status-map)
+             (elzilla//princf "* Attachments\n")
+             (mapc #'elzilla//print-attachment attachments-vector)
+             (elzilla//princf "* Comments\n")
+             (elzilla//princf "[[elzillapost:%s][Post comment]]\n" bug)
+             (mapc #'elzilla//print-comment comment-vector))
+         (pop-to-buffer buffer-name t t)
+         (org-mode))))))
 
 (defun elzilla/prompt-bug ()
   "Prompts for a bug from the minibuffer, and displays it"
@@ -197,43 +203,21 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
     (elzilla//princf "* %s\n" group-status)
     (mapc #'elzilla//print-bug-short group-bugs)))
 
-(defun elzilla/get-my-created-bugs ()
-  "Creates a new org-mode buffer which lists bugs created by elzilla-self"
-  (interactive)
-  (let* ((search-url (elzilla//rest-url "bug" nil (list (cons "creator" elzilla-self))))
-         (bug-vector (elzilla//xj '("bugs") (elzilla//fetch-json-from-url search-url)))
-         (bug-groups (seq-group-by (lambda (bug) (elzilla//xj '("status") bug)) bug-vector))
-         (buffer-name (generate-new-buffer "*elzilla: my created bugs*")))
-
-    (with-output-to-temp-buffer buffer-name
-      (mapc #'elzilla//print-bug-group bug-groups))
-    (pop-to-buffer buffer-name)
-    (org-mode)))
-
-(defun elzilla/get-my-assigned-bugs ()
-  "Creates a new org-mode buffer which lists bugs assigned to elzilla-self"
-  (interactive)
-  (let* ((search-url (elzilla//rest-url "bug" nil (list (cons "assigned_to" elzilla-self))))
-         (bug-vector (elzilla//xj '("bugs") (elzilla//fetch-json-from-url search-url)))
-         (bug-groups (seq-group-by (lambda (bug) (elzilla//xj '("status") bug)) bug-vector))
-         (buffer-name (generate-new-buffer "*elzilla: my assigned bugs*")))
-
-    (with-output-to-temp-buffer buffer-name
-      (mapc #'elzilla//print-bug-group bug-groups))
-    (pop-to-buffer buffer-name)
-    (org-mode)))
-
 (defun elzilla/quicksearch (search)
   "Creates a new org-mode buffer which lists bugs matching the given search"
   (let* ((search-url (elzilla//rest-url "bug" nil (list (cons "quicksearch" search))))
-         (bug-vector (elzilla//xj '("bugs") (elzilla//fetch-json-from-url search-url)))
-         (bug-groups (seq-group-by (lambda (bug) (elzilla//xj '("status") bug)) bug-vector))
          (buffer-name (generate-new-buffer "*elzilla: quicksearch results*")))
-
-    (with-output-to-temp-buffer buffer-name
-      (mapc #'elzilla//print-bug-group bug-groups))
-    (pop-to-buffer buffer-name)
-    (org-mode)))
+    (elfuture-attach
+     (elzilla//fetch-json-from-url search-url '("bugs"))
+     (lambda (bugs-vector)
+       (seq-group-by
+        (lambda (bug) (elzilla//xj '("status") bug))
+        bug-vector))
+     (lambda (bug-groups)
+       (with-output-to-temp-buffer buffer-name
+         (mapc #'elzilla//print-bug-group bug-groups))
+       (pop-to-buffer buffer-name)
+       (org-mode)))))
 
 (defun elzilla/quicksearch-prompt ()
   "Executes a search using Bugzilla quicksearch"
@@ -249,34 +233,64 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
          (url-request-data
           (format "{ \"comment\":%s, \"is_private\": false, \"is_markdown\": false }"
                   (json-encode-string comment))))
-    (url-retrieve-synchronously url)
-    (message (format "Posted %d character comment to bug %s" (length comment) bug))))
+    (elfuture-attach
+     (elfuture-retrieve-url url)
+     (lambda (_)
+       (message "Posted %d character comment to bug %s" (length comment) bug)))))
 
-(defun elzilla/post-comment-region (bug)
-  "Posts a comment using the currently selected text"
-  (elzilla/post-comment-string bug (buffer-substring (region-beginning) (region-end))))
+(defvar elzilla-comment-bug nil
+  "The bug which will this buffer's contents will be posted to")
+
+(defun elzilla//post-comment-buffer ()
+  "Posts a comment to the bug number attached to the buffer"
+  (interactive)
+  (elzilla/post-comment-string elzilla-comment-bug
+                               (buffer-substring (point-min) (point-max)))
+  (kill-current-buffer))
+
+(defvar elzilla-comment-mode-keymap
+  (make-sparse-keymap)
+  "The keymap used when using the comment posting minor mode")
+
+(define-minor-mode elzilla-comment-minor-mode
+  "Posts comments to Bugzilla bugs"
+  :lighter "comment"
+  :keymap elzilla-comment-mode-keymap
+  (make-local-variable 'elzilla-comment-bug))
+
+(define-key elzilla-comment-mode-keymap (kbd "C-c C-c") #'elzilla//post-comment-buffer)
+(define-key elzilla-comment-mode-keymap (kbd "C-c C-k") #'kill-current-buffer)
+
+(defun elzilla/post-comment (bug)
+  "Opens a new buffer for posting a comment"
+  (interactive)
+  (let* ((buffer (generate-new-buffer (format "*elzilla comment: %s*" bug))))
+    (with-current-buffer buffer
+      (markdown-mode)
+      (elzilla-comment-minor-mode)
+      (setq elzilla-comment-bug bug))
+    (pop-to-buffer buffer)))
 
 (defun elzilla/post-comment-prompt ()
-  "Posts a comment using the currently selected text"
+  "Opens a new buffer for posting a comment"
   (interactive)
-  (elzilla/post-comment-region (read-string "Enter a bug ID: ")))
+  (elzilla/post-comment (read-string "Enter a bug ID:")))
 
 (defun elzilla/download-attachment (attachment)
   "Downloads the attachment to the download directory"
-  (let* ((attachments-url (elzilla//rest-url "bug/attachment/%s" (list attachment) nil))
-         (attachment
-          (elzilla//xj (list "attachments" attachment)
-                       (elzilla//fetch-json-from-url attachments-url)))
-         (attachment-dir (concat elzilla-attachments-dir "/"
-                                 (number-to-string (elzilla//xj '("bug_id") attachment)) "/"))
-         (attachment-file (concat attachment-dir
-                                  (elzilla//xj '("file_name") attachment)))
-         (coding-system-for-write 'binary))
-
-    (make-directory attachment-dir t)
-    (with-temp-file attachment-file
-      (insert (base64-decode-string (elzilla//xj '("data") attachment))))
-    (message "Wrote attachment to %s" attachment-file)))
+  (let* ((attachments-url (elzilla//rest-url "bug/attachment/%s" (list attachment) nil)))
+    (elfuture-attach
+     (elzilla//fetch-json-from-url attachments-url (list "attachments" attachment))
+     (lambda (attachment)
+       (let* ((attachment-dir (concat elzilla-attachments-dir "/"
+                                     (number-to-string (elzilla//xj '("bug_id") attachment)) "/"))
+              (attachment-file (concat attachment-dir
+                                       (elzilla//xj '("file_name") attachment)))
+              (coding-system-for-write 'binary))
+         (make-directory attachment-dir t)
+         (with-temp-file attachment-file
+           (insert (base64-decode-string (elzilla//xj '("data") attachment))))
+         (message "Wrote attachment to %s" attachment-file))))))
 
 (defcustom org-elzilla-bug-protocol "elzilla"
   "Protocol identifier for elzilla bugs"
@@ -288,5 +302,11 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
   :group 'org-elzilla
   :type 'string)
 
+(defcustom org-elzilla-comment-protocol "elzillapost"
+  "Protocol identifier for posting elzilla comments"
+  :group 'org-elzilla
+  :type 'string)
+
 (org-link-set-parameters org-elzilla-bug-protocol :follow #'elzilla/get-bug)
 (org-link-set-parameters org-elzilla-attachment-protocol :follow #'elzilla/download-attachment)
+(org-link-set-parameters org-elzilla-comment-protocol :follow #'elzilla/post-comment)
