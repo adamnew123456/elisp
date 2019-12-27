@@ -16,6 +16,7 @@
 ;;;
 ;;; Emacs functions for clk2, github.com/adamnew123456/clk2
 
+(require 'elfuture)
 (require 'json)
 (require 'helm)
 (require 'seq)
@@ -42,9 +43,8 @@
      (t response-data))))
 
 (defun clk2//call-rpc-method (method &rest params)
-  "Calls a JSON-RPC method on the clk2 server"
-  (let ((json-object-type 'hash-table)
-        (request (make-hash-table))
+  "(async) Calls a JSON-RPC method on the clk2 server"
+  (let ((request (make-hash-table))
         (url-request-method "POST")
         (url-request-extra-headers
          '(("Content-Type" . "application/json-rpc"))))
@@ -56,13 +56,17 @@
     (let ((url-request-data
            (json-encode-hash-table request)))
 
-      (with-current-buffer (url-retrieve-synchronously clk2-url)
-        (goto-char (point-min))
-        (re-search-forward "^$")
-        (clk2//parse-rpc-response (json-read))))))
+      (elfuture-attach
+       (elfuture-retrieve-url clk2-url)
+       (lambda (buffer)
+         (with-current-buffer buffer
+           (goto-char (point-min))
+           (re-search-forward "^$")
+           (let ((json-object-type 'hash-table))
+             (clk2//parse-rpc-response (json-read)))))))))
 
 (defun clk2//format-seconds (seconds)
-  "Converts a duration in seconds to a human-readable format"
+  "Converts a duration in SECONDS to a human-readable format"
   (let* ((hours (/ seconds (* 60 60)))
          (remainder (% seconds (* 60 60)))
          (minutes (/ remainder 60))
@@ -70,79 +74,91 @@
     (format "%d:%02d:%02d" hours minutes seconds)))
 
 (defun clk2/get-tasks ()
-  "Gets a list of task IDs known to the server"
-  (mapcar
-   (lambda (task) (gethash "id" task))
-   (clk2//call-rpc-method "list")))
+  "(async) Gets a list of task IDs known to the server"
+  (elfuture-attach
+   (clk2//call-rpc-method "list")
+   (lambda (tasks)
+     (mapcar (lambda (task) (gethash "id" task))
+             tasks))))
 
-(defun clk2//choose-task (allow-new-task callback)
-  "Asks the user to pick a task and runs the callback with it if they do"
-  (let* ((tasks (clk2/get-tasks))
-         (tasks-source (helm-build-sync-source "Tasks" :candidates tasks))
-         (sources (if allow-new-task
-                      (list tasks-source clk-source-new-task)
-                    tasks-source))
-         (selected-task (helm :sources sources)))
+(defun clk2//choose-task (allow-new-task)
+  "(async) Asks the user to pick a task. New tasks are allowed if ALLOW-NEW-TASK is true."
+  (elfuture-attach
+   (clk2/get-tasks)
+   (lambda (tasks)
+     (let* ((tasks-source (helm-build-sync-source "Tasks" :candidates tasks))
+            (sources (if allow-new-task
+                         (list tasks-source clk-source-new-task)
+                       tasks-source))
+            (selected-task (helm :sources sources)))
 
-    (if selected-task
-        (funcall callback selected-task))))
+       selected-task))))
 
 (defun clk2/in ()
   "Clocks in to a task"
   (interactive)
-  (clk2//choose-task t
-                     (lambda (task)
-                       (clk2//call-rpc-method "start" task))))
+  (elfuture-attach
+   (clk2//choose-task t)
+   (lambda (task)
+    (if task (clk2//call-rpc-method "start" task)))))
 
 (defun clk2/out ()
   "Clocks out of a task"
   (interactive)
-  (clk2//choose-task nil
-                     (lambda (task)
-                       (clk2//call-rpc-method "stop" task))))
+  (elfuture-attach
+   (clk2//choose-task nil)
+   (lambda (task)
+    (if task (clk2//call-rpc-method "stop" task)))))
 
 (defun clk2/finish ()
   "Finishes a task and shows the completion time"
   (interactive)
-  (clk2//choose-task nil
-                     (lambda (task)
-                       (let ((elapsed (clk2//call-rpc-method "finish" task)))
-                         (message "clk2: Task %s took %s"
-                                  task
-                                  (clk2//format-seconds elapsed))))))
+  (let ((the-task nil))
+    (elfuture-attach
+     (clk2//choose-task nil)
+     (lambda (task)
+       (if (null task) (return nil))
+       (setq the-task task)
+       (clk2//call-rpc-method "finish" task))
+     (lambda (elapsed)
+       (message "clk2: Task %s took %s"
+                the-task
+                (clk2//format-seconds elapsed))))))
 
 (defun clk2/list ()
   "Displays a list of all tasks"
   (interactive)
-  (let ((tasks (clk2//call-rpc-method "list")))
+  (elfuture-attach
+   (clk2//call-rpc-method "list")
+   (lambda (tasks)
     (with-output-to-temp-buffer "*clk2 summary*"
-      (mapc
-       (lambda (task)
-         (princ (gethash "id" task))
-         (princ "; ")
-         (princ (gethash "status" task))
-         (princ "; ")
-         (princ (clk2//format-seconds (gethash "elapsed_sec" task)))
-         (princ "\n"))
-       tasks)
-      (pop-to-buffer "*clk2 summary*"))))
+     (mapc
+      (lambda (task)
+       (princ (gethash "id" task))
+       (princ "; ")
+       (princ (gethash "status" task))
+       (princ "; ")
+       (princ (clk2//format-seconds (gethash "elapsed_sec" task)))
+       (princ "\n"))
+      tasks)
+     (pop-to-buffer "*clk2 summary*")))))
 
 (defun clk2/history ()
   "Displays a log for a particular task"
   (interactive)
-  (clk2//choose-task nil
-                     (lambda (task)
-                       (let ((buffer-name (format "*clk2: %s*" task))
-                             (history (clk2//call-rpc-method "history" task)))
-
-                         (with-output-to-temp-buffer buffer-name
-                           (mapc
-                            (lambda (event)
-                              (princ (gethash "timestamp" event))
-                              (princ "; ")
-                              (princ (gethash "event" event))
-                              (princ "; ")
-                              (princ (clk2//format-seconds (gethash "cumulative_sec" event)))
-                              (princ "\n"))
-                            history)
-                           (pop-to-buffer buffer-name))))))
+  (elfuture-attach
+   (clk2//choose-task nil)
+   (lambda (task)
+    (clk2//call-rpc-method "history" task))
+   (lambda (history)
+     (with-output-to-temp-buffer "*clk2 history*"
+       (mapc
+        (lambda (event)
+          (princ (gethash "timestamp" event))
+          (princ "; ")
+          (princ (gethash "event" event))
+          (princ "; ")
+          (princ (clk2//format-seconds (gethash "cumulative_sec" event)))
+          (princ "\n"))
+        history)
+       (pop-to-buffer "*clk2 history*")))))
