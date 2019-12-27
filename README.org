@@ -97,3 +97,13 @@ summary, similar to the standard Git commit format:
 - ~org-zettel-add-down~
 - ~org-zettel-render~
 - ~org-zettel-prompt~
+** elfuture.el
+elfuture is a basic library which implements futures for deferred computation.
+It is mostly used as a wrapper by the other scripts when they need to perform
+asynchronous operations (usually dealing with network IO).
+
+*** Public API
+- ~elfuture-new~
+- ~elfuture-resolve~
+- ~elfuture-attach~
+- ~elfuture-retrieve-url~

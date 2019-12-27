@@ -25,7 +25,7 @@
 
 (defvar elfuture-run-async t
   "Whether to run callbacks through the event loop or not. Should only be set to
-  false for testing purposes.")
+false for testing purposes.")
 
 (defun elfuture-new ()
   "Creates a new future, which may be attached to a callback or awaited."
@@ -40,14 +40,19 @@
     (funcall callback value)))
 
 (defun elfuture--raw-attach (future callback)
-  "Attaches a single CALLBACK directly to FUTURE, without generating a result future"
+  "Attaches a single CALLBACK directly to FUTURE, without generating a result
+future. Outside of the elfuture internals, this is not desirable and `elfuture-attach'
+should be used instead."
   (if (elfuture-completed future)
       (elfuture--invoke callback (elfuture-value future))
     (setf (elfuture-callbacks future)
           (cons callback (elfuture-callbacks future)))))
 
 (defun elfuture--raw-resolve (future value)
-  "Resolves FUTURE with VALUE if FUTURE."
+  "Resolves FUTURE directly with VALUE if FUTURE is not already resolved.
+
+Does not recursively resolve VALUE if VALUE is itself a future. Use
+`elfuture-resolve' if that is needed."
   (setf (elfuture-completed future) t)
   (setf (elfuture-value future) value)
   (mapc (lambda (cb)
@@ -55,7 +60,11 @@
         (reverse (elfuture-callbacks future))))
 
 (defun elfuture-resolve (future value)
-  "Resolves FUTURE with VALUE if FUTURE is not already resolved."
+  "Resolves FUTURE with VALUE if FUTURE is not already resolved.
+
+This recursively resolves VALUE if VALUE itself is a future. In that case,
+FUTURE will be resolved (with the same value) as soon as VALUE itself is
+resolved."
   (cond
    ((elfuture-completed future) nil)
 
@@ -72,8 +81,18 @@
           (reverse (elfuture-callbacks future))))))
 
 (defun elfuture--attach1 (future callback)
-  "Attaches a single CALLBACK to FUTURE, and uses the result
-  to resolve a new future which is returned."
+  "Attaches a single CALLBACK to FUTURE, and uses the result to resolve a new
+future which is returned.
+
+In most cases `elfuture-attach' should be used because it generalizes this
+to multiple callbacks for easy chaining:
+
+  (elfuture-attach
+   the-future
+   (lambda (x) (* x 2))
+   (lambda (y) (* y 3)))
+  ;; Resolving the-future with 1 will resolve 6 on the callback returned by
+  ;; elfuture-attach"
   (let* ((chain-future (elfuture-new))
          (chain-callback
           (lambda (value)
@@ -85,17 +104,16 @@
 (defun elfuture-attach (future &rest callbacks)
   "Chains CALLBACKS onto each other, starting from FUTURE.
 
-  When FUTURE finishes, it invokes the first entry in
-  CALLBACKS. Then, the return value from that function
-  is fed into the second entry in CALLBACKS, and so on.
-  The last entry resolves a new callback which is returned."
+When FUTURE finishes, it invokes the first entry in CALLBACKS. Then, the
+return value from that function is fed into the second entry in CALLBACKS, and
+so on. The last entry resolves a new future which is returned."
   (seq-reduce #'elfuture--attach1
               callbacks
               future))
 
 (defun elfuture-retrieve-url (url)
   "Retrieves URL using url-retrieve and returns a future which completes with
-   the text content of the response."
+the buffer containing the response."
   (let ((future (elfuture-new)))
     (url-retrieve url
                   (lambda (_)
