@@ -121,7 +121,7 @@ is used to resolve the returned future."
      (lambda (future)
        (elfuture--raw-attach
         future
-        (lambda (value)
+        (lambda (_)
           (if (seq-every-p #'elfuture-completed futures)
               (elfuture-resolve join-future
                                 (mapcar #'elfuture-value futures))))))
@@ -212,7 +212,7 @@ the buffer containing the response."
          (future3
           (elfuture-attach
            future2
-           (lambda (value) future2))))
+           (lambda (_) future2))))
     (elfuture-resolve future 42)
     (should (elfuture-completed future))
     (should (= 42 (elfuture-value future)))

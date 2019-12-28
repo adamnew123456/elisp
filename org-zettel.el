@@ -124,10 +124,14 @@ its first child, etc.)"
 
   (org-zettel//open-buffer '(1)))
 
+(defvar org-zettel-buffer-addr nil
+  "The address of the Zettel open in the current buffer")
+
 (defun org-zettel//init-buffer ()
   "Initializes the buffer's zettel address"
-  (setq-local org-zettel-buffer-addr
-              (org-zettel//filename-to-addr (file-name-nondirectory (buffer-file-name)))))
+  (make-local-variable 'org-zettel-buffer-addr)
+  (setq org-zettel-buffer-addr
+        (org-zettel//filename-to-addr (file-name-nondirectory (buffer-file-name)))))
 
 (defun org-zettel//open-buffer (addr)
   "Opens the buffer for the given zettel and saves its address"

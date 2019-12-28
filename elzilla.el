@@ -110,7 +110,7 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
     (elzilla//princf "- [[%s][Open in Browser]]\n" (elzilla//browser-link id))
     (elzilla//princf "- Summary: %s\n" summary)
     (elzilla//princf "- Status: %s\n" status)
-    (elzilla//princf "- Resolution: %s\n" status)
+    (elzilla//princf "- Resolution: %s\n" resolution)
     (elzilla//princf "- Last updated on: %s\n\n" updated)
 
     (elzilla//princf "- Assigned to: %s (%s)\n" assigned-name assigned-email)
@@ -188,7 +188,6 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 (defun elzilla//print-bug-short (bug)
   "Prints a summary of the bug in Org, including links to more detailed views"
   (let ((id (elzilla//xj '("id") bug))
-        (status (elzilla//xj '("status") bug))
         (updated (elzilla//xj '("last_change_time") bug))
         (summary (elzilla//xj '("summary") bug)))
     (elzilla//princf "** Bug %d: %s\n" id summary)
@@ -212,7 +211,7 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
      (lambda (bugs-vector)
        (seq-group-by
         (lambda (bug) (elzilla//xj '("status") bug))
-        bug-vector))
+        bugs-vector))
      (lambda (bug-groups)
        (with-output-to-temp-buffer buffer-name
          (mapc #'elzilla//print-bug-group bug-groups))
