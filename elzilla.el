@@ -107,6 +107,7 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
         (priority (elzilla//xj '("priority") bug))
         (severity (elzilla//xj '("severity") bug)))
     (elzilla//princf "* Bug %d Info\n" id)
+    (elzilla//princf "- [[elzilla:%d][Reload]]\n" id)
     (elzilla//princf "- [[%s][Open in Browser]]\n" (elzilla//browser-link id))
     (elzilla//princf "- Summary: %s\n" summary)
     (elzilla//princf "- Status: %s\n" status)
@@ -151,7 +152,9 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 
 (defun elzilla/get-bug (bug)
   "Creates a new org-mode buffer displaying the status and comments to the given bug"
-  (let* ((buffer-name (generate-new-buffer (format "*elzilla: bug %s*" bug)))
+  (let* ((buffer-name (format "*elzilla: bug %s*" bug))
+         (bug-buffer (get-buffer buffer-name))
+         (reuse-buffer (not (null bug-buffer)))
          (status-url (elzilla//rest-url "bug/%s" (list bug) nil))
          ;; Take special care to avoid requesting the attachment body too early,
          ;; since can be much slower to retrieve than just metadata
@@ -170,15 +173,17 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
                                     (list "bugs" bug)))
      (lambda (responses)
        (cl-destructuring-bind (status-map comment-vector attachments-vector) responses
-           (with-output-to-temp-buffer buffer-name
+         (with-output-to-temp-buffer (if reuse-buffer bug-buffer buffer-name)
              (elzilla//print-bug-long status-map)
              (elzilla//princf "* Attachments\n")
              (mapc #'elzilla//print-attachment attachments-vector)
              (elzilla//princf "* Comments\n")
              (elzilla//princf "[[elzillapost:%s][Post comment]]\n" bug)
              (mapc #'elzilla//print-comment comment-vector))
-         (pop-to-buffer buffer-name t t)
-         (org-mode))))))
+         (with-current-buffer (if reuse-buffer bug-buffer buffer-name)
+           (org-mode))
+         (if (not reuse-buffer)
+             (pop-to-buffer buffer-name t t)))))))
 
 (defun elzilla/prompt-bug ()
   "Prompts for a bug from the minibuffer, and displays it"
@@ -309,3 +314,5 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 (org-link-set-parameters org-elzilla-bug-protocol :follow #'elzilla/get-bug)
 (org-link-set-parameters org-elzilla-attachment-protocol :follow #'elzilla/download-attachment)
 (org-link-set-parameters org-elzilla-comment-protocol :follow #'elzilla/post-comment)
+
+(provide 'elzilla)
