@@ -146,7 +146,11 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
     (princ "** Comment\n")
     (elzilla//princf "On %s, %s wrote:\n\n" time author)
     (princ "#+BEGIN_SRC text\n")
-    (princ text)
+    (princ
+     (mapconcat
+      (lambda (x) (concat "  " x))
+      (split-string text "[\r\n]" nil "[ \t]+")
+      "\n"))
     (princ "\n")
     (princ "#+END_SRC\n\n")))
 
