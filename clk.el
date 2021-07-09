@@ -162,3 +162,5 @@
           (princ "\n"))
         history)
        (pop-to-buffer "*clk2 history*")))))
+
+(provide 'clk)
