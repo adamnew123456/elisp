@@ -1,23 +1,34 @@
-;;; -*- lexical-binding: t -*-
-;; Copyright 2019, Chris Marchetti
-
+;;; elzilla.el --- Bugzilla interface for Emacs -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2019 Chris Marchetti
+;;
+;; Author: Chris Marchetti <adamew123456@gmail.com>
+;; Version: 0.2
+;; Package-Requires: (url)
+;; Keywords: futures, async
+;;
+;;; License:
+;;
 ;;  This program is free software: you can redistribute it and/or modify
 ;;  it under the terms of the GNU General Public License as published by
 ;;  the Free Software Foundation, either version 3 of the License, or
 ;;  (at your option) any later version.
-
+;;
 ;;  This program is distributed in the hope that it will be useful,
 ;;  but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;;  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;;  GNU General Public License for more details.
-
+;;
 ;;  You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;;
+;;; Commentary:
+;;
+;; This package provides a basic futures implementation that can be used for
+;; managing async operations.
+;;
+;;; Code:
 
-;; Basic futures implementation. Currently only supports resolving futures
-;; with single values.
-
-(require 'ert)
 (require 'url)
 
 (cl-defstruct elfuture
@@ -27,6 +38,7 @@
   "Whether to run callbacks through the event loop or not. Should only be set to
 false for testing purposes.")
 
+;;;###autoload
 (defun elfuture-new ()
   "Creates a new future, which may be attached to a callback or awaited."
   (make-elfuture :completed nil
@@ -101,6 +113,7 @@ to multiple callbacks for easy chaining:
     (elfuture--raw-attach future chain-callback)
     chain-future))
 
+;;;###autoload
 (defun elfuture-attach (future &rest callbacks)
   "Chains CALLBACKS onto each other, starting from FUTURE.
 
@@ -111,6 +124,7 @@ so on. The last entry resolves a new future which is returned."
               callbacks
               future))
 
+;;;###autoload
 (defun elfuture-join (&rest futures)
   "Creates a single future which is resolved with the combined values from FUTURES.
 
@@ -128,6 +142,7 @@ is used to resolve the returned future."
      futures)
     join-future))
 
+;;;###autoload
 (defun elfuture-retrieve-url (url)
   "Retrieves URL using url-retrieve and returns a future which completes with
 the buffer containing the response."
@@ -139,106 +154,6 @@ the buffer containing the response."
                   t)
     future))
 
-(ert-deftest elfuture--test-new ()
-  "Test the properties of a new future"
-  (let ((elfuture-run-async nil)
-        (future (elfuture-new)))
-    (should-not (elfuture-completed future))
-    (should (null (elfuture-value future)))
-    (should (null (elfuture-callbacks future)))))
-
-(ert-deftest elfuture--test-resolve ()
-  "Tests the properties of a resolved future"
-  (let ((elfuture-run-async nil)
-        (future (elfuture-new)))
-    (elfuture-resolve future 42)
-    (should (elfuture-completed future))
-    (should (= 42 (elfuture-value future)))
-    (should (null (elfuture-callbacks future)))))
-
-(ert-deftest elfuture--test-attach-one ()
-  "Tests that resolving a future invokes the attachment"
-  (let* ((elfuture-run-async nil)
-         (future (elfuture-new))
-         (x nil))
-    (elfuture-attach future
-                     (lambda (value)
-                       (setq x value)))
-    (elfuture-resolve future 42)
-    (should (= 42 x))))
-
-(ert-deftest elfuture--test-attach-order ()
-  "Tests that resolving a future invokes the attachments in order"
-  (let ((elfuture-run-async nil)
-        (future (elfuture-new))
-        (x nil))
-    (elfuture-attach future
-                     (lambda (_)
-                       (setq x (cons 1 x))))
-    (elfuture-attach future
-                     (lambda (_)
-                       (setq x (cons 2 x))))
-    (elfuture-resolve future 42)
-    (should (equal '(2 1) x))))
-
-(ert-deftest elfuture--test-attach-chain ()
-  "Tests that resolving a future cascades"
-  (let* ((elfuture-run-async nil)
-         (future (elfuture-new))
-         (x nil)
-         (y nil)
-         (future-attach
-          (elfuture-attach
-           (elfuture-attach future (lambda (value)
-                                     (setq x value)
-                                     (* x 2)))
-           (lambda (value)
-             (setq y value)
-             (* y 2)))))
-    (elfuture-resolve future 42)
-    (should (= x 42))
-    (should (= y 84))
-    (should (elfuture-completed future))
-    (should (= 42 (elfuture-value future)))
-    (should (elfuture-completed future-attach))
-    (should (= 168 (elfuture-value future-attach)))))
-
-(ert-deftest elfuture--test-attach-nested ()
-  "Tests that a callback returning a future is attached to the original future
-   which elfuture-attach returned."
-  (let* ((elfuture-run-async nil)
-         (future (elfuture-new))
-         (future2 (elfuture-new))
-         (future3
-          (elfuture-attach
-           future2
-           (lambda (_) future2))))
-    (elfuture-resolve future 42)
-    (should (elfuture-completed future))
-    (should (= 42 (elfuture-value future)))
-    (should-not (elfuture-completed future2))
-    (should-not (elfuture-completed future3))
-    (elfuture-resolve future2 84)
-    (should (elfuture-completed future2))
-    (should (= 84 (elfuture-value future2)))
-    (should (elfuture-completed future3))
-    (should (= 84 (elfuture-value future3)))))
-
-(ert-deftest elfuture--test-join ()
-  "Tests that a joined future resolves with all values after all input futures
-have resolved."
-  (let* ((elfuture-run-async nil)
-         (future (elfuture-new))
-         (future2 (elfuture-new))
-         (future3 (elfuture-new))
-         (joined-future (elfuture-join future future2 future3)))
-    (should-not (elfuture-completed joined-future))
-    (elfuture-resolve future 1)
-    (should-not (elfuture-completed joined-future))
-    (elfuture-resolve future2 2)
-    (should-not (elfuture-completed joined-future))
-    (elfuture-resolve future3 3)
-    (should (elfuture-completed joined-future))
-    (should (equal '(1 2 3) (elfuture-value joined-future)))))
 
 (provide 'elfuture)
+;;; elfuture.el ends here
