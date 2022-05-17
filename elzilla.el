@@ -1,23 +1,41 @@
-;;; -*- lexical-binding: t -*-
-;; Copyright 2019, Chris Marchetti
-
+;;; elzilla.el --- Bugzilla interface for Emacs -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2019 Chris Marchetti
+;;
+;; Author: Chris Marchetti <adamew123456@gmail.com>
+;; Version: 0.2
+;; Package-Requires: ((emacs "27.1") elfuture cl-lib json seq url)
+;; Keywords: bugzilla
+;;
+;;; License:
+;;
 ;;  This program is free software: you can redistribute it and/or modify
 ;;  it under the terms of the GNU General Public License as published by
 ;;  the Free Software Foundation, either version 3 of the License, or
 ;;  (at your option) any later version.
-
+;;
 ;;  This program is distributed in the hope that it will be useful,
 ;;  but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;;  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;;  GNU General Public License for more details.
-
+;;
 ;;  You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;;
+;;; Commentary:
+;;
+;; This package interacts with Bugzilla using the API exposed at /resgt.cgi
+;;
+;;; Code:
 
+;; Make sure that we can define the link types before the module proper is loaded
+
+;;;###autoload
 (require 'elfuture)
+(require 'browse-url)
+(require 'button)
 (require 'cl-lib)
 (require 'json)
-(require 'org)
 (require 'seq)
 (require 'url)
 
@@ -68,7 +86,10 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 
 (defun elzilla//rest-url (path formatters params)
   "Builds a URL from the Bugzilla REST API base"
-  (let* ((full-params (cons (cons "api_key" elzilla-api-key) params))
+  (let* ((full-params
+          (if (stringp elzilla-api-key)
+              (cons (cons "api_key" elzilla-api-key) params)
+            params))
          (params-string
           (string-join (mapcar (lambda (param)
                                  (concat (url-hexify-string (car param))
@@ -84,7 +105,15 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 
 (defun elzilla//princf (fmt &rest args)
   "Prints to the current output using format"
-  (princ (apply #'format (cons fmt args))))
+  (insert (apply #'format (cons fmt args))))
+
+(defun elzilla//princf-with-face (face fmt &rest args)
+  "Prints to the current output using format"
+  (let ((start (point))
+        (text (apply #' format (cons fmt args))))
+    (insert text)
+    (add-text-properties start (point)
+                         (list 'face face))))
 
 (defun elzilla//browser-link (bug)
   "Returns a link which can be browsed to using the system web browser"
@@ -106,9 +135,18 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
         (component (elzilla//xj '("component") bug))
         (priority (elzilla//xj '("priority") bug))
         (severity (elzilla//xj '("severity") bug)))
-    (elzilla//princf "* Bug %d Info\n" id)
-    (elzilla//princf "- [[elzilla:%d][Reload]]\n" id)
-    (elzilla//princf "- [[%s][Open in Browser]]\n" (elzilla//browser-link id))
+    (elzilla//princf-with-face 'bold-italic "Bug %d Info\n\n" id)
+
+    (insert-text-button "Reload"
+                        :type 'elzilla-bugref
+                        'elzilla-bug id)
+
+    (elzilla//princf "\n")
+    (insert-text-button "Open In Browser"
+                        :type 'elzilla-href
+                        'elzilla-url (elzilla//browser-link id))
+    (elzilla//princf "\n\n")
+
     (elzilla//princf "- Summary: %s\n" summary)
     (elzilla//princf "- Status: %s\n" status)
     (elzilla//princf "- Resolution: %s\n" resolution)
@@ -125,37 +163,44 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
     (elzilla//princf "- Severity: %s\n" severity)))
 
 (defun elzilla//print-attachment (attachment)
-  "Prints metadata about an attachment in Org format"
+  "Prints metadata about an attachment"
   (let ((id (elzilla//xj '("id") attachment))
         (author (elzilla//xj '("creator") attachment))
         (time (elzilla//xj '("creation_time") attachment))
         (size (elzilla//xj '("size") attachment))
         (content-type (elzilla//xj '("content_type") attachment))
         (summary (elzilla//xj '("summary") attachment)))
-    (elzilla//princf "** %s\n" summary)
-    (elzilla//princf "- [[elzilladl:%d][Download]]\n" id)
+    (elzilla//princf-with-face 'bold "Attachment: %s\n" summary)
+
+    (elzilla//princf "- ")
+    (insert-text-button "Download"
+                        :type 'elzilla-attachref
+                        'elzilla-attachment id)
+    (elzilla//princf "\n")
+
     (elzilla//princf "- Attached by %s on %s\n" author time)
     (elzilla//princf "- MIME Type: %s\n" content-type)
     (elzilla//princf "- Size: %d\n" size)))
 
 (defun elzilla//print-comment (comment)
-  "Prints a comment and its metadata in Org format"
+  "Prints a comment and its metadata"
   (let ((text (elzilla//xj '("text") comment))
         (author (elzilla//xj '("creator") comment))
         (time (elzilla//xj '("time") comment)))
-    (princ "** Comment\n")
-    (elzilla//princf "On %s, %s wrote:\n\n" time author)
-    (princ "#+BEGIN_SRC text\n")
-    (princ
-     (mapconcat
-      (lambda (x) (concat "  " x))
-      (split-string text "[\r\n]" nil "[ \t]+")
-      "\n"))
-    (princ "\n")
-    (princ "#+END_SRC\n\n")))
+    (elzilla//princf "\n")
+    (elzilla//princf-with-face 'underline "On %s, %s wrote:" time author)
+    (elzilla//princf "\n\n")
+    (let ((comment-start (point)))
+      (elzilla//princf "%s"
+                       (mapconcat
+                        (lambda (x) (concat "> " x))
+                        (split-string text "[\r\n]" nil "[ \t]+")
+                        "\n")))
+    (elzilla//princf "\n\n")))
 
+;;;###autoload
 (defun elzilla/get-bug (bug)
-  "Creates a new org-mode buffer displaying the status and comments to the given bug"
+  "Creates a new buffer displaying the status and comments to the given bug"
   (let* ((buffer-name (format "*elzilla: bug %s*" bug))
          (bug-buffer (get-buffer buffer-name))
          (reuse-buffer (not (null bug-buffer)))
@@ -177,18 +222,21 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
                                     (list "bugs" bug)))
      (lambda (responses)
        (cl-destructuring-bind (status-map comment-vector attachments-vector) responses
-         (with-output-to-temp-buffer (if reuse-buffer bug-buffer buffer-name)
-             (elzilla//print-bug-long status-map)
-             (elzilla//princf "* Attachments\n")
-             (mapc #'elzilla//print-attachment attachments-vector)
-             (elzilla//princf "* Comments\n")
-             (elzilla//princf "[[elzillapost:%s][Post comment]]\n" bug)
-             (mapc #'elzilla//print-comment comment-vector))
-         (with-current-buffer (if reuse-buffer bug-buffer buffer-name)
-           (org-mode))
+         (with-current-buffer (get-buffer-create buffer-name)
+           (delete-region (point-min) (point-max))
+           (elzilla//print-bug-long status-map)
+           (elzilla//princf-with-face 'bold "\nAttachments\n")
+           (mapc #'elzilla//print-attachment attachments-vector)
+           (elzilla//princf-with-face 'bold "\nComments\n\n")
+           (insert-text-button "Post Comment"
+                               :type 'elzilla-commentref
+                               'elzilla-bug bug)
+           (elzilla//princf "\n\n")
+           (mapc #'elzilla//print-comment comment-vector))
          (if (not reuse-buffer)
              (pop-to-buffer buffer-name t t)))))))
 
+;;;###autoload
 (defun elzilla/prompt-bug ()
   "Prompts for a bug from the minibuffer, and displays it"
   (interactive)
@@ -199,9 +247,20 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
   (let ((id (elzilla//xj '("id") bug))
         (updated (elzilla//xj '("last_change_time") bug))
         (summary (elzilla//xj '("summary") bug)))
-    (elzilla//princf "** Bug %d: %s\n" id summary)
-    (elzilla//princf "- [[elzilla:%d][Details]]\n" id)
-    (elzilla//princf "- [[%s][Open in Browser]]\n" (elzilla//browser-link id))
+    (elzilla//princf "Bug %d: %s\n" id summary)
+
+    (elzilla//princf "- ")
+    (insert-text-button "Details"
+                        :type 'elzilla-bugref
+                        'elzilla-bug bug)
+    (elzilla//princf "\n")
+
+    (elzilla//princf "- ")
+    (insert-text-button "Open In Browser"
+                        :type 'elzilla-href
+                        'elzilla-url (elzilla//browser-link id))
+    (elzilla//princf "\n")
+
     (elzilla//princf "- Last updated: %s\n" updated)))
 
 (defun elzilla//print-bug-group (group)
@@ -211,6 +270,7 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
     (elzilla//princf "* %s\n" group-status)
     (mapc #'elzilla//print-bug-short group-bugs)))
 
+;;;###autoload
 (defun elzilla/quicksearch (search)
   "Creates a new org-mode buffer which lists bugs matching the given search"
   (let* ((search-url (elzilla//rest-url "bug" nil (list (cons "quicksearch" search))))
@@ -227,6 +287,7 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
        (pop-to-buffer buffer-name)
        (org-mode)))))
 
+;;;###autoload
 (defun elzilla/quicksearch-prompt ()
   "Executes a search using Bugzilla quicksearch"
   (interactive)
@@ -260,6 +321,7 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
   (make-sparse-keymap)
   "The keymap used when using the comment posting minor mode")
 
+;;;###autoload
 (define-minor-mode elzilla-comment-minor-mode
   "Posts comments to Bugzilla bugs"
   :lighter "comment"
@@ -269,6 +331,7 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
 (define-key elzilla-comment-mode-keymap (kbd "C-c C-c") #'elzilla//post-comment-buffer)
 (define-key elzilla-comment-mode-keymap (kbd "C-c C-k") #'kill-current-buffer)
 
+;;;###autoload
 (defun elzilla/post-comment (bug)
   "Opens a new buffer for posting a comment"
   (interactive)
@@ -279,11 +342,13 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
       (setq elzilla-comment-bug bug))
     (pop-to-buffer buffer)))
 
+;;;###autoload
 (defun elzilla/post-comment-prompt ()
   "Opens a new buffer for posting a comment"
   (interactive)
   (elzilla/post-comment (read-string "Enter a bug ID:")))
 
+;;;###autoload
 (defun elzilla/download-attachment (attachment)
   "Downloads the attachment to the download directory"
   (let* ((attachments-url (elzilla//rest-url "bug/attachment/%s" (list attachment) nil)))
@@ -300,23 +365,37 @@ attachment called file.pdf for bug 12345 then the attachment will be located at:
            (insert (base64-decode-string (elzilla//xj '("data") attachment))))
          (message "Wrote attachment to %s" attachment-file))))))
 
-(defcustom org-elzilla-bug-protocol "elzilla"
-  "Protocol identifier for elzilla bugs"
-  :group 'org-elzilla
-  :type 'string)
+(defun elzilla/click-bugref (button)
+  "Navigate to the button's bug"
+  (elzilla/get-bug (button-get button 'elzilla-bug)))
 
-(defcustom org-elzilla-attachment-protocol "elzilladl"
-  "Protocol identifier for elzilla attachments"
-  :group 'org-elzilla
-  :type 'string)
+(defun elzilla/click-commentref (button)
+  "Creates a new comment on the button's bug"
+  (elzilla/post-comment (button-get button 'elzilla-bug)))
 
-(defcustom org-elzilla-comment-protocol "elzillapost"
-  "Protocol identifier for posting elzilla comments"
-  :group 'org-elzilla
-  :type 'string)
+(defun elzilla/click-attachref (button)
+  "Downloads the button's attachment"
+  (elzilla/download-attachment (button-get button 'elzilla-attachment)))
 
-(org-link-set-parameters org-elzilla-bug-protocol :follow #'elzilla/get-bug)
-(org-link-set-parameters org-elzilla-attachment-protocol :follow #'elzilla/download-attachment)
-(org-link-set-parameters org-elzilla-comment-protocol :follow #'elzilla/post-comment)
+(defun elzilla/click-href (button)
+  "Opens the user's browser at button's bug"
+  (browse-url (button-get button 'elzilla-url)))
+
+(define-button-type 'elzilla-bugref
+  'follow-link t
+  'action #'elzilla/click-bugref)
+
+(define-button-type 'elzilla-commentref
+  'follow-link t
+  'action #'elzilla/click-commentref)
+
+(define-button-type 'elzilla-attachref
+  'follow-link t
+  'action #'elzilla/click-attachref)
+
+(define-button-type 'elzilla-href
+  'follow-link t
+  'action #'elzilla/click-href)
 
 (provide 'elzilla)
+;;; elzilla.el ends here
