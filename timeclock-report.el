@@ -59,13 +59,13 @@
             (let* ((start-time (time-convert (nth 0 event) 'integer))
                    (end-time (time-convert (nth 1 event) 'integer))
                    (duration (- end-time start-time)))
-              (insert (format "    %.2f hours (from %s)\n"
-                              (/ duration 3600.0)
+              (insert (format "    %s (from %s)\n"
+                              (timeclock-seconds-to-string duration)
                               (format-time-string "%Y-%m-%d %H:%M" start-time)))
               (setq total-time-sec (+ total-time-sec duration))))
           events)
-    (insert (format "%.2f total hours\n\n"
-                    (/ total-time-sec 3600.0)))))
+    (insert (format "%s total\n\n"
+                    (timeclock-seconds-to-string total-time-sec)))))
 
 
 (defun timeclock-in-and-reload ()
