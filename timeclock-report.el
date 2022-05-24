@@ -46,7 +46,8 @@
     (insert (propertize (timeclock-status-string) 'face 'bold))
     (insert "\n\n")
     (let ((per-project-status (caddr (timeclock-log-data))))
-      (mapc #'timeclock-report-task per-project-status))))
+      (mapc #'timeclock-report-task per-project-status))
+    (goto-char 1)))
 
 (defun timeclock-report-task (log-entry)
   "Inserts an entry for the report for the given LOG-ENTRY"
