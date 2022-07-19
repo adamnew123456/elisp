@@ -33,13 +33,17 @@
 (define-key timeclock-report-mode-map (kbd "C-c i") #'timeclock-in-and-reload)
 (define-key timeclock-report-mode-map (kbd "C-c o") #'timeclock-out-and-reload)
 (define-key timeclock-report-mode-map (kbd "C-c r") #'timeclock-report-reload)
+(define-key timeclock-report-mode-map (kbd "C-c e") #'timeclock-edit-and-reload)
 
-(defun timeclock-report-reload (&rest args)
+(defun timeclock-report-check-buffer ()
+  "Validates that the current buffer is a timeclock-report buffer."
+  (if (not (derived-mode-p 'timeclock-report-mode))
+      (user-error "Cannot perform this operation in a non-timeclock buffer")))
+
+(defun timeclock-report-reload (&rest _args)
   "Reloads the timeclock file and regnerates the report in the current buffer."
   (interactive)
-  (if (not (derived-mode-p 'timeclock-report-mode))
-      (user-error "Cannot reload report in a non-timeclock buffer"))
-
+  (timeclock-report-check-buffer)
   (timeclock-reread-log)
   (with-silent-modifications
     (erase-buffer)
@@ -72,17 +76,30 @@
 (defun timeclock-in-and-reload ()
   "Clocks in via TIMECLOCK-IN and reloads the report."
   (interactive)
-  (if (not (derived-mode-p 'timeclock-report-mode))
-      (user-error "Cannot reload report in a non-timeclock buffer"))
+  (timeclock-report-check-buffer)
   (call-interactively 'timeclock-in)
   (timeclock-report-reload))
 
 (defun timeclock-out-and-reload ()
   "Clocks out via TIMECLOCK-OUT and reloads the report."
   (interactive)
-  (if (not (derived-mode-p 'timeclock-report-mode))
-      (user-error "Cannot reload report in a non-timeclock buffer"))
+  (timeclock-report-check-buffer)
   (call-interactively 'timeclock-out)
   (timeclock-report-reload))
+
+(defun timeclock-edit-and-reload ()
+  "Opens the timeclock file in another buffer and hooks it to update this buffer on save."
+  (interactive)
+  (timeclock-report-check-buffer)
+  (let ((report-buffer (current-buffer))
+        (edit-buffer (find-file timeclock-file)))
+    (with-current-buffer edit-buffer
+      (add-hook 'after-save-hook
+                (lambda ()
+                  (with-current-buffer report-buffer
+                    (timeclock-report-reload)))
+                nil
+                t))
+    (pop-to-buffer edit-buffer)))
 
 (provide 'timeclock-report)
